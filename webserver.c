@@ -45,19 +45,35 @@ struct HTTP_Resp {
     char *reason;
 };
 
+// ############ Resources ############
+// resource definition
 typedef struct Resource {
     char *path;
     char *data;
     struct Resource * next;
 } Resource;
-
+// resource initialisation
 Resource *initializeResource() {
     Resource * head = NULL;
     head = (Resource *) malloc(sizeof(Resource));
 
     return head;
 }
+// find a resource in linked list
+bool findResource(Resource *head, char *path, char *data) {
+    Resource *current = head;
 
+    while (current != NULL) {
+        if(current->path != NULL || current->data != NULL)
+            if (strcmp(current->path, path) == 0 && strcmp(current->data, data) == 0)
+                return true;
+
+        current = current->next;
+    }
+
+    return false;
+}
+// add a resource in linked list
 void addResource(Resource *head, char *path, char *data) {
     Resource *current = head;
 
@@ -76,21 +92,7 @@ void addResource(Resource *head, char *path, char *data) {
     current->next->path = path;
     current->next->next = NULL;
 }
-
-bool findResource(Resource *head, char *path, char *data) {
-    Resource *current = head;
-
-    while (current != NULL) {
-        if(current->path != NULL || current->data != NULL)
-            if (strcmp(current->path, path) == 0 && strcmp(current->data, data) == 0)
-                return true;
-
-        current = current->next;
-    }
-
-    return false;
-}
-
+// delete a resource by value from a linked list
 Resource *deleteResource(Resource *head, char *path, char *data) {
     Resource *current = head;
     Resource *prev = NULL;
@@ -117,7 +119,7 @@ Resource *deleteResource(Resource *head, char *path, char *data) {
 
     return current;
 }
-
+// free resource linked list
 void freeRescource(Resource *head) {
 
     Resource * tmp;
@@ -129,6 +131,106 @@ void freeRescource(Resource *head) {
         free(tmp);
     }
 
+}
+// ####################################
+
+// ############ HTTP Response Codes ############
+// 404 Not Found
+struct HTTP_Resp* Resp_NotFound(struct HTTP_Resp * resp) {
+    resp->reason = "Not found";
+    resp->status = 404;
+    resp->body = NULL;
+    return resp;
+}
+// 200 Ok
+struct HTTP_Resp* Resp_Ok(struct HTTP_Resp * resp) {
+    resp->reason = "Ok";
+    resp->status = 200;
+    return resp;
+}
+// 400 Bad Request
+struct HTTP_Resp* Resp_BadRequest(struct HTTP_Resp * resp) {
+    resp->status = 400;
+    resp->reason = "Bad Request";
+    resp->body = NULL;
+    return resp;
+}
+// 201 Created
+struct HTTP_Resp* Resp_Created(struct HTTP_Resp * resp) {
+    resp->status = 201;
+    resp->reason = "Created";
+    resp->body = NULL;
+    return resp;
+}
+// 403 Forbidden
+struct HTTP_Resp* Resp_Forbidden(struct HTTP_Resp * resp) {
+    resp->status = 403;
+    resp->reason = "Forbidden";
+    resp->body = NULL;
+    return resp;
+}
+// 501 Other Request
+struct HTTP_Resp* Resp_OtherRequest(struct HTTP_Resp * resp) {
+    resp->status = 501;
+    resp->reason = "Other Request";
+    resp->body = NULL;
+    return resp;
+}
+// 200 Exists already -> TODO: Needs to change
+struct HTTP_Resp* Resp_ExistsAlready(struct HTTP_Resp * resp) {
+    resp->status = 200;
+    resp->reason = "Exists Already";
+    resp->body = NULL;
+    return resp;
+}
+// ############################################
+
+// ############# HTTP METHODS ##################
+void GetMethod(struct HTTP_Req *request, struct HTTP_Resp *response) {
+    Resp_Ok(response);
+
+    if (strcmp(request->uri, "static/foo") == 0)
+        response->body = "Foo";
+    else if (strcmp(request->uri, "static/bar") == 0)
+        response->body = "Bar";
+    else if (strcmp(request->uri, "static/baz") == 0)
+        response->body = "Baz";
+    else {
+        // 404
+        Resp_NotFound(response);
+    }
+}
+
+void PutMethod(struct HTTP_Req *request, struct HTTP_Resp *response, Resource *head) {
+    if (strncmp(request->uri, "dynamic/", 8) == 0) {
+
+        if (findResource(head, request->uri, request->body) == true) {
+            // exists already
+            Resp_ExistsAlready(response);
+        } else {
+            // doesn't exist yet
+            addResource(head, request->uri, request->body);
+
+            Resp_Created(response);
+        }
+    } else {
+        // forbidden 403
+        Resp_Forbidden(response);
+    }
+}
+
+void DeleteMethod(struct HTTP_Req *request, struct HTTP_Resp *response, Resource *head) {
+    if (strncmp(request->uri, "dynamic/", 8) == 0) {
+
+        if (findResource(head, request->uri, request->body) == true) {
+            // exists
+            deleteResource(head, request->uri, request->body);
+            Resp_Ok(response);
+        } else {
+            // doesn't exist
+            Resp_NotFound(response);
+        }
+    }
 }
 
 int choose_method(char *method) {
@@ -152,15 +254,31 @@ int choose_method(char *method) {
         return TRACE;
     return -1;
 }
+// ############################################
+
+void SendResponse(struct HTTP_Resp *response, int conn_fd) {
+    // send response
+    char buffer[512];
+    if (response->body != NULL) // with body
+        snprintf(buffer, sizeof(buffer), "HTTP/%f %d %s\n\n%s", response->version, response->status, response->reason, response->body);
+    else    //without body
+        snprintf(buffer, sizeof(buffer), "HTTP/%f %d %s", response->version, response->status, response->reason);
+
+    int len, bytes_sent;
+    len = strlen(buffer);
+
+    if (send(conn_fd, buffer, len, 0) == -1)
+        perror("send");
+}
 
 struct HTTP_Req* HTTP_Request_Handler(char *request_str) {
 
     struct HTTP_Req *request = malloc(sizeof(struct HTTP_Req));
 
     // find body trough \n \n -> replace second \n with & symbol
-    for (int i = 0; i < strlen(request_str) - 2; i++) {
-        if (request_str[i] == '\n' && request_str[i + 1] == '\n') {
-            request_str[i + 1] = '|';
+    for (int i = 0; i < strlen(request_str) - 4; i++) {
+        if (request_str[i] == '\r' && request_str[i + 1] == '\n' && request_str[i + 2] == '\r' && request_str[i + 3] == '\n') {
+            request_str[i + 3] = '|';
         }
     }
 
@@ -191,7 +309,8 @@ struct HTTP_Req* HTTP_Request_Handler(char *request_str) {
     version_str = strtok(NULL, "/");
 
     // convert version from *char to float
-    request->version = (float) atof(version_str);
+    if (version_str)
+        request->version = (float) atof(version_str);
 
 
     // check validity
@@ -218,7 +337,6 @@ struct HTTP_Resp *HTTP_Response_Handler(struct HTTP_Req *request, int conn_fd, R
 
     struct HTTP_Resp *response = malloc(sizeof(struct HTTP_Resp));
 
-
     bool hasPayload = false;
 
     // check if header includes content-length
@@ -231,99 +349,21 @@ struct HTTP_Resp *HTTP_Response_Handler(struct HTTP_Req *request, int conn_fd, R
     response->version = request->version;
 
     // check if valid request
-    if (request->valid == false) {
-        // 400 incorrect
-        response->status = 400;
-        response->reason = "Bad Request";
-        response->body = NULL;
-    }
-    // response handling
-    else if (request->method == GET) {
+    if (request->valid == false)
+        Resp_BadRequest(response);
 
-        response->reason = "Ok";
-        response->status = 200;
+    else if (request->method == GET)
+        GetMethod(request, response);
 
-        if (strcmp(request->uri, "static/foo") == 0)
-            response->body = "Foo";
-        else if (strcmp(request->uri, "static/bar") == 0)
-            response->body = "Bar";
-        else if (strcmp(request->uri, "static/baz") == 0)
-            response->body = "Baz";
-        else {
-            // 404
-            response->body = NULL;
-            response->status = 404;
-            response->reason = "Not found";
-        }
+    else if (request->method == PUT)
+        PutMethod (request, response, headResource);
 
-    }
+    else if (request->method == DELETE)
+        DeleteMethod(request, response, headResource);
+    else
+        Resp_OtherRequest(response);
 
-    else if (request->method == PUT) {
-        if (strncmp(request->uri, "dynamic/", 8) == 0) {
-
-            if (findResource(headResource, request->uri, request->body) == true) {
-                // exists already
-                response->status = 200;
-                response->reason = "Exists already";
-                response->body = NULL;
-            } else {
-                // doesn't exist yet
-                addResource(headResource, request->uri, request->body);
-
-                response->status = 201;
-                response->reason = "Created";
-                response->body = NULL;
-            }
-        } else {
-            // forbidden 403
-            response->status = 403;
-            response->reason = "Forbidden";
-            response->body = NULL;
-        }
-
-    }
-
-    else if (request->method == DELETE) {
-        if (strncmp(request->uri, "dynamic/", 8) == 0) {
-
-            if (findResource(headResource, request->uri, request->body) == true) {
-                // exists
-                deleteResource(headResource, request->uri, request->body);
-                response->status = 200;
-                response->reason = "Ok";
-                response->body = NULL;
-            } else {
-                // doesn't exist
-                response->body = NULL;
-                response->status = 404;
-                response->reason = "Not found";
-            }
-
-        }
-    }
-
-    else {
-        // 501 everything else
-        response->version = request->version;
-        response->status = 501;
-        response->reason = "Other Request";
-    }
-
-
-    // send response
-    char buffer[512];
-    if (response->body != NULL) // with body
-        snprintf(buffer, sizeof(buffer), "HTTP/%f %d %s\n\n%s", response->version, response->status, response->reason, response->body);
-    else    //without body
-        snprintf(buffer, sizeof(buffer), "HTTP/%f %d %s", response->version, response->status, response->reason);
-
-    int len, bytes_sent;
-    len = strlen(buffer);
-
-    if (send(conn_fd, buffer, len, 0) == -1)
-        perror("send");
-
-
+    SendResponse(response, conn_fd);
 
     return response;
 }
@@ -443,14 +483,21 @@ int main(int argc, char** argv) {
         char *recvbuff = (char*)malloc(BUFFER_SIZE * sizeof(char));
         n = recv(conn_fd, recvbuff, BUFFER_SIZE, 0);
 
-        struct HTTP_Req *request = HTTP_Request_Handler(recvbuff);
+        if (n != 0) {
 
-        struct HTTP_Resp *response = HTTP_Response_Handler(request, conn_fd, headResource);
+            // save response in buffer
+            snprintf((char*)buff, sizeof(buff), "Reply\r\n\r\n");
+            // send response
+            send(conn_fd, (char*)buff, strlen((char*)buff), 0);
 
-        // save response in buffer
-        //snprintf((char*)buff, sizeof(buff), "HTTP/1.0 200 OK\r\n\r\nReply");
-        // send response
-        //send(conn_fd, (char*)buff, strlen((char*)buff), 0);
+
+            struct HTTP_Req *request = HTTP_Request_Handler(recvbuff);
+            struct HTTP_Resp *response = HTTP_Response_Handler(request, conn_fd, headResource);
+        }
+
+
+
+
 
         //free(request);
         //free(response);
