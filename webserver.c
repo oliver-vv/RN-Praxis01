@@ -34,36 +34,39 @@ Resource *initializeResource() {
     return head;
 }
 // find a resource in linked list
-bool findResource(Resource *head, char *path, char *data) {
+char *findResource(Resource *head, char *path) {
     Resource *current = head;
 
     while (current != NULL) {
         if(current->path != NULL || current->data != NULL)
-            if (strcmp(current->path, path) == 0 && strcmp(current->data, data) == 0)
-                return true;
+            if (strcmp(current->path, path) == 0)   // TODO: check for data ? -> strcmp(current->data, data) == 0
+                return current->data;
 
         current = current->next;
     }
 
-    return false;
+    return NULL;
 }
 // add a resource in linked list
 void addResource(Resource *head, char *path, char *data) {
-    Resource *current = head;
 
-    if (current->data == NULL || current->path == NULL) {
-        head->data = data;
+    Resource * current = head;
+
+    if (current->data == NULL || current->path == NULL || current == NULL) {
         head->path = path;
+        head->data = data;
         head->next = NULL;
         return;
     }
 
-    while (current->next != NULL)
+    while (current->next != NULL) {
         current = current->next;
+    }
 
-    current->next = (Resource*) malloc(sizeof(Resource));
-    current->next->data = data;
+    /* now we can add a new variable */
+    current->next = (Resource *) malloc(sizeof(Resource));
     current->next->path = path;
+    current->next->data = data;
     current->next->next = NULL;
 }
 // delete a resource by value from a linked list
@@ -74,7 +77,7 @@ Resource *deleteResource(Resource *head, char *path, char *data) {
     if (head == NULL)
         return NULL;
 
-
+    // TODO: currently only deleting when path matches -> data needs to be included
     while (strcmp(current->path, path) != 0) {
 
         if (current->next == NULL) {
@@ -86,15 +89,20 @@ Resource *deleteResource(Resource *head, char *path, char *data) {
     }
 
     if (current == head) {
-        head = head->next;
+        head->path = NULL;
+        head->data = NULL;
+        head->next = NULL;
     } else {
         prev->next = current->next;
+        free(current);
     }
 
-    return current;
+    //free(current); ?
+
+    return head;
 }
 // free resource linked list
-void freeRescource(Resource *head) {
+void freeResource(Resource *head) {
 
     Resource * tmp;
 
@@ -161,17 +169,21 @@ Response* Resp_ExistsAlready(Response * resp) {
 
 // ############# HTTP METHODS ##################
 // method == GET
-void GetMethod(Request *request, Response *response) {
+void GetMethod(Request *request, Response *response, Resource *head) {
     Resp_Ok(response);
-
-    if (strcmp(request->uri, "static/foo") == 0)
+    char* res;
+    if (strcmp(request->uri, "/static/foo") == 0)
         response->payload = "Foo";
 
-    else if (strcmp(request->uri, "static/bar") == 0)
+    else if (strcmp(request->uri, "/static/bar") == 0)
         response->payload = "Bar";
 
-    else if (strcmp(request->uri, "static/baz") == 0)
+    else if (strcmp(request->uri, "/static/baz") == 0)
         response->payload = "Baz";
+
+    else if ((res = findResource(head, request->uri))) {
+        response->payload = res;
+    }
 
     else
         Resp_NotFound(response);
@@ -179,14 +191,14 @@ void GetMethod(Request *request, Response *response) {
 }
 // method == PUT
 void PutMethod(Request *request, Response *response, Resource *head) {
-    if (strncmp(request->uri, "dynamic/", 8) == 0) {
+    if (strncmp(request->uri, "/dynamic/", 8) == 0) {
 
-        if (findResource(head, request->uri, response->payload) == true) {
+        if (findResource(head, request->uri)) {
             // exists already
             Resp_Ok(response);
         } else {
             // doesn't exist yet
-            addResource(head, request->uri, response->payload);
+            addResource(head, request->uri, request->payload);
 
             Resp_Created(response);
         }
@@ -199,9 +211,9 @@ void PutMethod(Request *request, Response *response, Resource *head) {
 void DeleteMethod(Request *request, Response *response, Resource *head) {
     if (strncmp(request->uri, "dynamic/", 8) == 0) {
 
-        if (findResource(head, request->uri, response->payload) == true) {
+        if (findResource(head, request->uri)) {
             // exists
-            deleteResource(head, request->uri, response->payload);
+            deleteResource(head, request->uri, request->payload);
             Resp_Ok(response);
         } else {
             // doesn't exist
@@ -218,11 +230,11 @@ struct Response *Response_Handler(Request *request, Resource *headResource) {
     response->version = request->version;
 
     // incorrect request
-    if (request->flags == ERROR)
+    if (request->flags == ERROR || request->method == NONE)
         Resp_BadRequest(response);
 
     else if (request->method == GET)
-        GetMethod(request, response);
+        GetMethod(request, response, headResource);
 
     else if (request->method == PUT)
         PutMethod (request, response, headResource);
@@ -231,7 +243,6 @@ struct Response *Response_Handler(Request *request, Resource *headResource) {
         DeleteMethod(request, response, headResource);
     else
         Resp_OtherRequest(response);
-
 
     return response;
 }
@@ -264,8 +275,6 @@ int main(int argc, char** argv) {
     int yes = 1;
     char s[INET6_ADDRSTRLEN];
     int rv; // status
-    pid_t pid;
-
 
     // initialize addresses
     memset(&hints, 0, sizeof hints); // make sure the struct is empty
@@ -329,10 +338,11 @@ int main(int argc, char** argv) {
     printf("server: waiting for connections on port %s ...\n", argv[1]);
 
     // initialize linked list for resources
-    Resource *headResource = initializeResource();
+    Resource *headResource = (Resource *) malloc(sizeof(Resource));
+    char *recvbuff = (char *) malloc(BUFFER_SIZE * sizeof(char));
 
     // main accept loop
-    for (;;) {
+    while (1) {
         sin_size = sizeof their_addr;
 
         // accepting connections
@@ -349,45 +359,70 @@ int main(int argc, char** argv) {
 
         printf("server: got connection from %s\n", s);
 
-        // fork() for multithreading
-        if (!fork()) {
+        // close listening socket
+        // TODO: uncomment for final -> close(listen_fd);
 
-            // close listening socket
-            close(listen_fd);
 
-            // malloc receive buffer
-            char *recvbuff = (char *) malloc(BUFFER_SIZE * sizeof(char));
-            // read from connected socket -> write to recvbuff
-            long n = recv(conn_fd, recvbuff, BUFFER_SIZE, 0);
+        long byte_length = 0;
+        //byte_length = recv(conn_fd, recvbuff, BUFFER_SIZE ,0);
+        Request *request = NULL;
+        char *nextPtr;
 
-            // request not empty
-            if (n != 0) {
+        while (1) {
+
+            while (1) {
+                long n;
+                n = recv(conn_fd, recvbuff + byte_length, BUFFER_SIZE ,0);
+                byte_length += n;
                 // next pointer after request
-                char *nextPtr;
+
+                if (n == 0)
+                    break;
 
                 // deserialize request
-                Request *request = deserializeRequest(recvbuff, &nextPtr);
+                request = deserializeRequest(recvbuff, &nextPtr);
 
-                // handle requests with corresponding responses
-                Response *response = Response_Handler(request, headResource);
+                if ((request->flags & SUCCESS) == SUCCESS || (request->method == NONE != 0)){
+                    break;
+                }
 
-                // serialize response
-                char *str = serializeResponse(response);
+                freeRequest(request);
 
-                // send response
-                if (send(conn_fd, str, strlen(str), 0) == -1)
-                    perror("send");
             }
 
-            // free receive buffer
-            free(recvbuff);
+            if (!request)
+                break;
 
-            exit(EXIT_SUCCESS);
+            // handle requests with corresponding responses
+            Response *response = Response_Handler(request, headResource);
+
+            // serialize response
+            char *str = serializeResponse(response);
+
+            // send response
+            if (send(conn_fd, str, strlen(str), 0) == -1)
+                perror("send");
+
+
+            // free receive buffer
+            //free(recvbuff);
+
+            // TODO: uncomment for final -> exit(EXIT_SUCCESS);
+
+
+            int x = nextPtr - recvbuff;
+            int y = byte_length - x;
+
+            strncpy(recvbuff, nextPtr, y);
+            byte_length = byte_length - x;
+
         }
+
         // close connected socket
         close(conn_fd);
     }
 
-    freeRescource(headResource);
+    free (headResource);
+    freeResource(headResource);
     return (EXIT_SUCCESS);
 }
