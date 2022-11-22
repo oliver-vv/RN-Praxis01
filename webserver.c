@@ -158,13 +158,6 @@ Response* Resp_OtherRequest(Response * resp) {
     resp->payload = NULL;
     return resp;
 }
-// 200 -> Exists already -> TODO: Needs to change
-Response* Resp_ExistsAlready(Response * resp) {
-    resp->status = 200;
-    resp->reason = "Exists Already";
-    resp->payload = NULL;
-    return resp;
-}
 // ############################################
 
 // ############# HTTP METHODS ##################
@@ -233,7 +226,7 @@ struct Response *Response_Handler(Request *request, Resource *headResource) {
         response->version = "HTTP/1.1";
 
     // incorrect request
-    if (request->flags == ERROR || request->method == NONE)
+    if (request->flags == ERROR)
         Resp_BadRequest(response);
 
     else if (request->method == GET)
@@ -244,7 +237,7 @@ struct Response *Response_Handler(Request *request, Resource *headResource) {
 
     else if (request->method == DELETE)
         DeleteMethod(request, response, headResource);
-    else
+    else if (request->method == NONE)
         Resp_OtherRequest(response);
 
     return response;
@@ -265,44 +258,32 @@ void *get_in_addr(struct sockaddr *sa) {
     return &(((struct sockaddr_in6*)sa)->sin6_addr);
 }
 
-
 void processBuffer(char *buffer, size_t *len, int conn_fd, Resource *headResource) {
-
-    // search buffer for "Content-Length: value" -> get pointer to "C" (first char)
-    // buffer - pointer = size without payload
-    // if ( value == 0 ) -> no payload -> request complete
-    // if ->
-
-    // while ( strstr (buffer, "Content-Length: ") == 0) -> buffer has header
-        // payload len = value
-        // if ( *len < size without payload + payload len ) -> too short -> break
-        // extract request
-        //
 
     size_t initial_len = *len;
     char* tmp;
     char* nextAddr;
     Request *request;
 
-    while (true) {  // while ( *len -> enough bytes for payload length ? )
+    while (true) {
 
         // try to read and parse a complete request package
         request = deserializeRequest(buffer, &nextAddr);
 
         // if not complete -> return
-        if (request == NULL || request->flags == ERROR || request->method == NONE) {
+        if (request == NULL)
             break;
-        }
+
 
         // handle request with corresponding response
         Response *response = Response_Handler(request, headResource);
-
         // serialize response
         char *str = serializeResponse(response);
 
         // send response
         if (send(conn_fd, str, strlen(str), 0) == -1)
             perror("send");
+
 
         *len -= (nextAddr - buffer);
 
@@ -314,9 +295,9 @@ void processBuffer(char *buffer, size_t *len, int conn_fd, Resource *headResourc
         else
             return;
     }
+
+
 }
-
-
 
 int main(int argc, char** argv) {
 
@@ -415,72 +396,16 @@ int main(int argc, char** argv) {
 
         printf("server: got connection from %s\n", s);
 
-        // close listening socket
-        // TODO: uncomment for final -> close(listen_fd);
-
-
         size_t recv_len = 0;
         long recv_result;
 
-        while ((recv_result = recv(conn_fd, recv_buff + recv_len, BUFFER_SIZE - recv_len, 0)) > 0) {
+        while ((recv_result = recv(conn_fd, recv_buff + recv_len, BUFFER_SIZE - recv_len, 0)) > 0){
 
             if (recv_result > 0) {
                 recv_len += recv_result;
                 processBuffer(recv_buff, &recv_len, conn_fd, headResource);
             }
         }
-
-
-        /*
-        while (1) {
-
-            while (1) {
-                long n;
-                n = recv(conn_fd, recv_buff + byte_length, BUFFER_SIZE ,0);  // TODO: RECEIVE PROBLEM -> PACKETS
-                byte_length += n;
-                // next pointer after request
-
-                if (n == 0)
-                    break;
-
-                // deserialize request
-                request = deserializeRequest(recv_buff, &nextPtr);
-
-                if ((request->flags & SUCCESS) == SUCCESS || (request->method == NONE != 0)){
-                    break;
-                }
-
-                freeRequest(request);
-
-            }
-
-            if (!request)
-                break;
-
-            // handle requests with corresponding responses
-            Response *response = Response_Handler(request, headResource);
-
-            // serialize response
-            char *str = serializeResponse(response);
-
-            // send response
-            if (send(conn_fd, str, strlen(str), 0) == -1)
-                perror("send");
-
-            // free receive buffer
-            //free(recv_buff);
-
-            // TODO: uncomment for final -> exit(EXIT_SUCCESS);
-
-
-            int x = nextPtr - recv_buff;
-            int y = byte_length - x;
-
-            strncpy(recv_buff, nextPtr, y);
-            byte_length = byte_length - x;
-
-        }
-         */
 
         // close connected socket
         close(conn_fd);

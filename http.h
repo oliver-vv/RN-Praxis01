@@ -17,10 +17,10 @@ enum FLAGS {
 };
 
 enum HTTP_METHOD {
-	NONE,
-	GET,
-	PUT,
-	DELETE,
+	NONE	   ,
+	GET	   ,
+	PUT	   ,
+	DELETE	   ,
 };
 
 enum HTTP_STATUS {

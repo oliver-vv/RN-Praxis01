@@ -55,6 +55,9 @@ char* serializeResponse(Response* resp) {
 Response* deserializeResponse(char* payload, char** nxtPacketPtr) {
 	Response* resp = calloc(1,sizeof(Response));
 	char* header_end = strstr(payload, SEPARATOR2);
+	if (header_end==NULL) {
+		return NULL;
+	}
 	for (int i = 0; i < 4; i++)
 		header_end[i] = '\0';
 
@@ -74,6 +77,7 @@ Response* deserializeResponse(char* payload, char** nxtPacketPtr) {
 
 	} else {
 		flag |= ERROR;
+		return NULL;
 	}
 	// reason
 	char* reason = strtok(NULL, SEPARATOR);
@@ -146,6 +150,8 @@ Response* deserializeResponse(char* payload, char** nxtPacketPtr) {
 Request* deserializeRequest(char* bytestream, char** nxtPacketPtr) {
 	Request* req = calloc(1,sizeof(Request));
 	char* header_end = strstr(bytestream, SEPARATOR2);
+	if (header_end == NULL)
+		return NULL;
 	for (int i = 0; i < 4; i++)
 		header_end[i] = '\0';
 
