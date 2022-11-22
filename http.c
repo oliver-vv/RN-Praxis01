@@ -55,9 +55,8 @@ char* serializeResponse(Response* resp) {
 Response* deserializeResponse(char* payload, char** nxtPacketPtr) {
 	Response* resp = calloc(1,sizeof(Response));
 	char* header_end = strstr(payload, SEPARATOR2);
-	if (header_end==NULL) {
+	if (header_end==NULL)
 		return NULL;
-	}
 	for (int i = 0; i < 4; i++)
 		header_end[i] = '\0';
 
@@ -385,25 +384,33 @@ int findHeaderByVal(Header* arr, int size, Header* h) {
 	return -1;
 }
 
-int setHeader (Header** arr_ptr, int size, Header h){
+int setHeader (Header** arr_ptr, int *header_count, Header h){
+	int idx;
+	if (*arr_ptr==NULL) {
+		*arr_ptr=malloc(*header_count * sizeof(Header));
+		idx = -1;
+	}
+	else {
+		idx = findHeaderByKey(*arr_ptr, *header_count, &h);
+	}
 	Header* arr = *arr_ptr;
-	int idx = findHeaderByKey(arr, size, &h);
 	if (idx >= 0) {
 		arr[idx].val = h.val;
 	} else {
-		*arr_ptr = realloc(*arr_ptr, ++size*sizeof(Header));
+		(*header_count)++;
+		*arr_ptr = realloc(*arr_ptr, *header_count*sizeof(Header));
 		arr = *arr_ptr;
-		arr[size-1] = h;
+		arr[*header_count-1] = h;
 	}
 	return 0;
 }
 
-int removeHeader (Header** arr_ptr, int size, int idx) {
+int removeHeader (Header** arr_ptr, int *header_count, int idx) {
 	Header* arr = *arr_ptr;
-	if (idx < 0 || size >= idx)
+	if (idx < 0 || *header_count >= idx)
 		return -1;
-	for (int i = idx; i < size-1; i++)
+	for (int i = idx; i < *header_count-1; i++)
 		arr[i] = arr[i+1];
-	*arr_ptr = realloc(*arr_ptr, --size * sizeof(Header));
+	*arr_ptr = realloc(*arr_ptr, --*header_count * sizeof(Header));
 	return 0;
 }

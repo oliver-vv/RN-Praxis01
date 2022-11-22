@@ -70,6 +70,9 @@ char*		serializeRequest	(Request* req);
 char*		serializeResponse	(Response* resp);
 void 		freeResponse		(Response* resp);
 void 		freeRequest		(Request* req);
+int 		findHeaderByKey		(Header* arr, int size, Header* h);
+int 		findHeaderByVal		(Header* arr, int size, Header* h);
+int 		setHeader 		(Header** arr, int* size, Header h);
 // compare
 bool 		cmpRequest		(Request* a, Request* b);
 bool 		cmpResponse		(Response* a, Response* b);
@@ -83,10 +86,7 @@ enum HTTP_METHOD method2enum		(char* method);
 char* 		enum2method 		(enum HTTP_METHOD num);
 
 // TODO test
-int 		findHeaderByKey		(Header* arr, int size, Header* h);
-int 		findHeaderByVal		(Header* arr, int size, Header* h);
-int 		setHeader 		(Header** arr, int size, Header h);
-int 		removeHeader 		(Header** arr, int size, int idx);
+int 		removeHeader 		(Header** arr, int* size, int idx);
 
 #endif
 
