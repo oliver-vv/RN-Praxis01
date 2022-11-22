@@ -227,7 +227,10 @@ struct Response *Response_Handler(Request *request, Resource *headResource) {
 
     struct Response *response = malloc(sizeof(struct Response));
 
-    response->version = request->version;
+    if (request->version != NULL)
+        response->version = request->version;
+    else
+        response->version = "HTTP/1.1";
 
     // incorrect request
     if (request->flags == ERROR || request->method == NONE)
@@ -261,6 +264,59 @@ void *get_in_addr(struct sockaddr *sa) {
     }
     return &(((struct sockaddr_in6*)sa)->sin6_addr);
 }
+
+
+void processBuffer(char *buffer, size_t *len, int conn_fd, Resource *headResource) {
+
+    // search buffer for "Content-Length: value" -> get pointer to "C" (first char)
+    // buffer - pointer = size without payload
+    // if ( value == 0 ) -> no payload -> request complete
+    // if ->
+
+    // while ( strstr (buffer, "Content-Length: ") == 0) -> buffer has header
+        // payload len = value
+        // if ( *len < size without payload + payload len ) -> too short -> break
+        // extract request
+        //
+
+    size_t initial_len = *len;
+    char* tmp;
+    char* nextAddr;
+    Request *request;
+
+    while (true) {  // while ( *len -> enough bytes for payload length ? )
+
+        // try to read and parse a complete request package
+        request = deserializeRequest(buffer, &nextAddr);
+
+        // if not complete -> return
+        if (request == NULL || request->flags == ERROR || request->method == NONE) {
+            break;
+        }
+
+        // handle request with corresponding response
+        Response *response = Response_Handler(request, headResource);
+
+        // serialize response
+        char *str = serializeResponse(response);
+
+        // send response
+        if (send(conn_fd, str, strlen(str), 0) == -1)
+            perror("send");
+
+        *len -= (nextAddr - buffer);
+
+        if (*len > 0) {
+            memset(buffer, '\0', (buffer - nextAddr));
+            memmove(buffer, nextAddr, *len);
+            memset(nextAddr, '\0', *len);
+        }
+        else
+            return;
+    }
+}
+
+
 
 int main(int argc, char** argv) {
 
@@ -339,7 +395,7 @@ int main(int argc, char** argv) {
 
     // initialize linked list for resources
     Resource *headResource = (Resource *) malloc(sizeof(Resource));
-    char *recvbuff = (char *) malloc(BUFFER_SIZE * sizeof(char));
+    char *recv_buff = (char *) malloc(BUFFER_SIZE * sizeof(char));
 
     // main accept loop
     while (1) {
@@ -363,16 +419,24 @@ int main(int argc, char** argv) {
         // TODO: uncomment for final -> close(listen_fd);
 
 
-        long byte_length = 0;
-        //byte_length = recv(conn_fd, recvbuff, BUFFER_SIZE ,0);
-        Request *request = NULL;
-        char *nextPtr;
+        size_t recv_len = 0;
+        long recv_result;
 
+        while ((recv_result = recv(conn_fd, recv_buff + recv_len, BUFFER_SIZE - recv_len, 0)) > 0) {
+
+            if (recv_result > 0) {
+                recv_len += recv_result;
+                processBuffer(recv_buff, &recv_len, conn_fd, headResource);
+            }
+        }
+
+
+        /*
         while (1) {
 
             while (1) {
                 long n;
-                n = recv(conn_fd, recvbuff + byte_length, BUFFER_SIZE ,0);
+                n = recv(conn_fd, recv_buff + byte_length, BUFFER_SIZE ,0);  // TODO: RECEIVE PROBLEM -> PACKETS
                 byte_length += n;
                 // next pointer after request
 
@@ -380,7 +444,7 @@ int main(int argc, char** argv) {
                     break;
 
                 // deserialize request
-                request = deserializeRequest(recvbuff, &nextPtr);
+                request = deserializeRequest(recv_buff, &nextPtr);
 
                 if ((request->flags & SUCCESS) == SUCCESS || (request->method == NONE != 0)){
                     break;
@@ -403,20 +467,20 @@ int main(int argc, char** argv) {
             if (send(conn_fd, str, strlen(str), 0) == -1)
                 perror("send");
 
-
             // free receive buffer
-            //free(recvbuff);
+            //free(recv_buff);
 
             // TODO: uncomment for final -> exit(EXIT_SUCCESS);
 
 
-            int x = nextPtr - recvbuff;
+            int x = nextPtr - recv_buff;
             int y = byte_length - x;
 
-            strncpy(recvbuff, nextPtr, y);
+            strncpy(recv_buff, nextPtr, y);
             byte_length = byte_length - x;
 
         }
+         */
 
         // close connected socket
         close(conn_fd);
