@@ -34,15 +34,30 @@ Resource *initializeResource() {
 
 	return head;
 }
+
+char *getResource(Resource *head, char *path) {
+    Resource *current = head;
+
+    while (current != NULL) {
+        if(current->path != NULL || current->data != NULL)
+            if (strcmp(current->path, path) == 0) {
+                return current->data;
+            }
+        current = current->next;
+    }
+
+    return NULL;
+}
+
 // find a resource in linked list
 char *findResource(Resource *head, char *path) {
 	Resource *current = head;
 
 	while (current != NULL) {
 		if(current->path != NULL || current->data != NULL)
-			if (strcmp(current->path, path) == 0)   // TODO: check for data ? -> strcmp(current->data, data) == 0
-				return current->data;
-
+			if (strcmp(current->path, path) == 0) {   // TODO: check for data ? -> strcmp(current->data, data) == 0
+                return current->data;
+            }
 		current = current->next;
 	}
 
@@ -79,7 +94,7 @@ Resource *deleteResource(Resource *head, char *path, char *data) {
 		return NULL;
 
 	// TODO: currently only deleting when path matches -> data needs to be included
-	while (strcmp(current->path, path) != 0) {
+	while (strcmp(current->path, path) != 0 && strcmp(current->data, data) != 0) {
 
 		if (current->next == NULL) {
 			return NULL;
@@ -117,8 +132,8 @@ void freeResource(Resource *head) {
 }
 // ####################################
 
-// ############ HTTP Response Codes ############
 
+// ############ HTTP Response Codes ############
 // 404 -> Not Found
 Response* Resp_NotFound(Response * resp) {
 	resp->reason = "Not found";
@@ -160,6 +175,13 @@ Response* Resp_OtherRequest(Response * resp) {
 	resp->payload = NULL;
 	return resp;
 }
+// 201 -> Overwritten
+Response* Resp_Overwritten(Response * resp) {
+    resp->status = 201;
+    resp->reason = "Overwritten";
+    resp->payload = NULL;
+    return resp;
+}
 // ############################################
 
 // ############# HTTP METHODS ##################
@@ -176,7 +198,7 @@ void GetMethod(Request *request, Response *response, Resource *head) {
 	else if (strcmp(request->uri, "/static/baz") == 0)
 		response->payload = "Baz";
 
-	else if ((res = findResource(head, request->uri))) {
+	else if ((res = getResource(head, request->uri)) != NULL) {
 		response->payload = res;
 	}
 
@@ -187,10 +209,21 @@ void GetMethod(Request *request, Response *response, Resource *head) {
 // method == PUT
 void PutMethod(Request *request, Response *response, Resource *head) {
 	if (strncmp(request->uri, "/dynamic/", 8) == 0) {
-
-		if (findResource(head, request->uri)) {
+        char *res;
+		if ((res = findResource(head, request->uri)) != NULL) {
 			// exists already
-			Resp_Ok(response);
+
+            if (strcmp(request->payload, res) == 0) {
+                // if data is the same respond -> ok
+                Resp_Ok(response);
+            } else {
+                // if data is new -> overwrite
+                deleteResource(head, request->uri, res);
+                addResource(head, request->uri, request->payload);
+
+                Resp_Overwritten(response);
+            }
+
 		} else {
 			// doesn't exist yet
 			addResource(head, request->uri, request->payload);
@@ -204,9 +237,9 @@ void PutMethod(Request *request, Response *response, Resource *head) {
 }
 // method == DELETE
 void DeleteMethod(Request *request, Response *response, Resource *head) {
-	if (strncmp(request->uri, "dynamic/", 8) == 0) {
-
-		if (findResource(head, request->uri)) {
+	if (strncmp(request->uri, "/dynamic/", 8) == 0) {
+        char *res;
+		if ((res = findResource(head, request->uri)) != NULL) {
 			// exists
 			deleteResource(head, request->uri, request->payload);
 			Resp_Ok(response);
